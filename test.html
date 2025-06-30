@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  
+  <title>Test Game</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #f0f0f0;
+      font-family: sans-serif;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 20px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 2em;
+      color: #333;
+    }
+
+    #settings {
+      font-size: 0.9em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #settings label {
+      color: #333;
+      font-weight: bold;
+    }
+
+    #volume-slider {
+      width: 100px;
+    }
+
+    #boundary {
+      width: 70%;
+      height: calc(80vw / 2);
+      border: 2px solid black;
+      background-color: black;
+      position: relative;
+      margin: 0 auto;
+      overflow: hidden;
+    }
+
+    #instructions {
+      position: absolute;
+      top: 0;
+      width: 100%;
+      background-color: lightgrey;
+      color: black;
+      padding: 10px;
+      text-align: center;
+      font-size: 1.1em;
+      font-weight: bold;
+      z-index: 10;
+    }
+
+    #spaceship {
+      width: 0;
+      height: 0;
+      position: absolute;
+      border-left: 25px solid transparent;
+      border-right: 25px solid transparent;
+      border-bottom: 50px solid white;
+    }
+     .bullet {
+      width: 4px;
+      height: 20px;
+      background-color: yellow;
+      position: absolute;
+    }
+
+    .enemy {
+      width: 80px;
+      height: 40px;
+      background-color: yellow;
+      position: absolute;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .enemy h5 {
+      color: black;
+      margin: 0;
+      font-size: 0.9em;
+    }
+
+    .particle {
+      position: absolute;
+      font-size: 13.5px;
+      font-weight: bold;
+      user-select: none;
+      pointer-events: none;
+    }
+
+    #score {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      color: white;
+      font-size: 1.5em;
+      font-family: monospace;
+      background: rgba(0, 0, 0, 0.6);
+      padding: 5px 10px;
+      border-radius: 5px;
+      z-index: 10;
+    }
+
+    #kill-line {
+      position: absolute;
+      height: 2px;
+      width: 100%;
+      background-color: transparent;
+      z-index: 1;
+    }
+
+    #difficulty-menu {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      z-index: 100;
+    }
+
+    #difficulty-menu button {
+      padding: 5px 10px;
+      font-size: 0.9em;
+      cursor: pointer;
+    }
+
+    #difficulty-menu button.selected {
+      background-color: #444;
+      color: white;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Test game</h1>
+    <div id="settings">
+      <label for="volume-slider">Volume:</label>
+      <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.5" />
+    </div>
+  </header>
+
+  <div id="boundary">
+    <div id="instructions">Insert question here. Shoot the right answer.</div>
+    <div id="spaceship"></div>
+    <div id="kill-line"></div>
+    <div id="score">000000</div>
+  </div>
+
+  <div id="difficulty-menu">
+    <button data-mode="easy" class="selected">Easy</button>
+    <button data-mode="medium">Medium</button>
+    <button data-mode="hard">Hard</button>
+  </div>
+
+  <!-- Sound Effect: Brick Break -->
+  <audio id="enemy-hit-sound" preload="auto">
+    <source src="https://freesound.org/data/previews/334/334266_5865516-lq.mp3" type="audio/mpeg">
+  </audio>
+  <script>
+    const boundary = document.getElementById("boundary");
+    const ship = document.getElementById("spaceship");
+    const killLine = document.getElementById("kill-line");
+    const scoreDisplay = document.getElementById("score");
+    const hitSound = document.getElementById("enemy-hit-sound");
+    const volumeSlider = document.getElementById("volume-slider");
+    const difficultyButtons = document.querySelectorAll("#difficulty-menu button");
+
+    let difficulty = "easy";
+    let difficultySettings = {
+      easy:  { speedMult: 1, count: 3, max: 3, range: 40 },
+      medium:{ speedMult: 1.2, count: 4, max: 4, range: 60 },
+      hard:  { speedMult: 1.4, count: 5, max: 5, range: 80 }
+    };
+
+    difficultyButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        difficultyButtons.forEach(b => b.classList.remove("selected"));
+        btn.classList.add("selected");
+        difficulty = btn.dataset.mode;
+      });
+    });
+
+    volumeSlider.addEventListener("input", () => {
+      hitSound.volume = parseFloat(volumeSlider.value);
+    });
+    hitSound.volume = parseFloat(volumeSlider.value);
+
+    const shipSize = 50;
+    const speed = 6 * 1.5;
+    const bulletSpeed = 12 * 2;
+    const bulletCooldown = 200;
+    let posX = 0;
+    let lastShotTime = 0;
+
+    let bullets = [];
+    let enemies = [];
+    let hits = [];
+    let score = 0;
+
+    const keys = { ArrowLeft: false, ArrowRight: false };
+
+    document.addEventListener("keydown", e => {
+      if (e.key in keys) keys[e.key] = true;
+      if (e.code === "Space" && Date.now() - lastShotTime >= bulletCooldown) {
+        shootBullet();
+        lastShotTime = Date.now();
+      }
+    });
+
+    document.addEventListener("keyup", e => {
+      if (e.key in keys) keys[e.key] = false;
+    });
+
+    function isPrime(n) {
+      if (n < 2) return false;
+      for (let i = 2; i <= Math.sqrt(n); i++) {
+        if (n % i === 0) return false;
+      }
+      return true;
+    }
+
+    function getRandomPrime(min, max) {
+      let n;
+      do { n = Math.floor(Math.random() * (max - min + 1)) + min; } while (!isPrime(n));
+      return n;
+    }
+
+    function getRandomNonPrime(min, max, exclude=[]) {
+      let n;
+      do { n = Math.floor(Math.random() * (max - min + 1)) + min; } while (isPrime(n) || exclude.includes(n));
+      return n;
+    }
+
+    function updateScore(amount) {
+      score = Math.max(0, score + amount);
+      scoreDisplay.textContent = score.toString().padStart(6, '0');
+    }
+
+    function shootBullet() {
+      const bullet = document.createElement("div");
+      bullet.className = "bullet";
+      bullet.style.left = (posX + 25 - 2) + "px";
+      bullet.style.top = (boundary.clientHeight - shipSize) + "px";
+      boundary.appendChild(bullet);
+      bullets.push(bullet);
+    }
+
+    function createParticle(x, y, isPrime) {
+      const type = isPrime ? "✔" : "✖";
+      const color = isPrime ? "limegreen" : "red";
+      const size = isPrime ? [9, 13.5] : [9, 9];
+
+      for (let i = 0; i < 12; i++) {
+        const el = document.createElement("div");
+        el.className = "particle";
+        el.style.color = color;
+        el.style.left = x + "px";
+        el.style.top = y + "px";
+        el.style.width = size[0] + "px";
+        el.style.height = size[1] + "px";
+        el.textContent = type;
+        boundary.appendChild(el);
+        particles.push({
+          el, x, y,
+          vx: (Math.random() - 0.5) * 5,
+          vy: Math.random() * -2,
+          life: 100
+        });
+      }
+    }
+    let particles = [];
+
+    function spawnEnemies() {
+      if (enemies.length > 0) return;
+
+      const settings = difficultySettings[difficulty];
+      const spacing = boundary.clientWidth / (settings.count + 1);
+      const prime = getRandomPrime(1, settings.range);
+      const nonPrimes = [];
+
+      while (nonPrimes.length < settings.count - 1) {
+        const n = getRandomNonPrime(1, settings.range, nonPrimes);
+        nonPrimes.push(n);
+      }
+
+      const all = [{ val: prime, isPrime: true }, ...nonPrimes.map(n => ({ val: n, isPrime: false }))];
+      all.sort(() => Math.random() - 0.5);
+
+      all.forEach((obj, i) => {
+        const e = document.createElement("div");
+        e.className = "enemy";
+        const label = document.createElement("h5");
+        label.textContent = obj.val;
+        e.appendChild(label);
+        boundary.appendChild(e);
+        enemies.push({
+          element: e,
+          x: spacing * (i + 1) - 40,
+          y: 50,
+          swayAngle: 0,
+          swaySpeed: Math.random() * 0.1 + 0.02,
+          speed: ((boundary.clientHeight - 40) / (15 * 60)) * settings.speedMult,
+          isPrime: obj.isPrime
+        });
+      });
+
+      hits = [];
+    }
+
+    function destroyAllEnemies() {
+      enemies.forEach(e => e.element.remove());
+      enemies = [];
+      setTimeout(spawnEnemies, 1000);
+    }
+
+    function update() {
+      const boundaryHeight = boundary.clientHeight;
+
+      // Move ship
+      if (keys.ArrowLeft && posX > 0) posX -= speed;
+      if (keys.ArrowRight && posX + shipSize < boundary.clientWidth) posX += speed;
+      ship.style.left = posX + "px";
+      ship.style.top = (boundaryHeight - shipSize) + "px";
+      killLine.style.top = (boundaryHeight - shipSize - 2) + "px";
+
+      // Bullets
+      bullets.forEach((b, i) => {
+        b.style.top = (parseFloat(b.style.top) - bulletSpeed) + "px";
+        if (parseFloat(b.style.top) < 0) {
+          b.remove();
+          bullets.splice(i, 1);
+        }
+      });
+
+      // Collisions
+      bullets.forEach((b, bi) => {
+        const bRect = b.getBoundingClientRect();
+        enemies.forEach((e, ei) => {
+          const eRect = e.element.getBoundingClientRect();
+          if (bRect.left < eRect.right && bRect.right > eRect.left && bRect.top < eRect.bottom && bRect.bottom > eRect.top) {
+            b.remove();
+            bullets.splice(bi, 1);
+            updateScore(e.isPrime ? 100 : -50);
+            createParticle(e.x + 40, e.y + 20, e.isPrime);
+            hitSound.currentTime = 0;
+            hitSound.playbackRate = 1.5;
+            hitSound.play();
+            hits.push(e.isPrime ? 'prime' : 'non-prime');
+            e.element.remove();
+            enemies.splice(ei, 1);
+
+            const nonHits = hits.filter(h => h === 'non-prime').length;
+            if (hits.includes('prime') || nonHits >= 2) destroyAllEnemies();
+          }
+        });
+      });
+
+      // Enemies fall
+      enemies.forEach((e, i) => {
+        e.y += e.speed;
+        e.swayAngle += e.swaySpeed;
+        e.x += Math.sin(e.swayAngle) * 0.8;
+        e.element.style.left = e.x + "px";
+        e.element.style.top = e.y + "px";
+
+        if (e.element.getBoundingClientRect().bottom >= killLine.getBoundingClientRect().top) {
+          updateScore(-200);
+          e.element.remove();
+          enemies.splice(i, 1);
+          if (enemies.length === 0) destroyAllEnemies();
+        }
+      });
+
+      // Particles
+      particles.forEach((p, i) => {
+        p.vy += 0.3;
+        p.x += p.vx + (Math.random() - 0.5) * 1.5;
+        p.y += p.vy;
+        p.el.style.left = p.x + "px";
+        p.el.style.top = p.y + "px";
+        p.life--;
+        if (p.y > boundaryHeight || p.life <= 0) {
+          p.el.remove();
+          particles.splice(i, 1);
+        }
+      });
+
+      requestAnimationFrame(update);
+    }
+
+    function init() {
+      posX = (boundary.clientWidth - shipSize) / 2;
+      spawnEnemies();
+      update();
+    }
+
+    init();
+  </script>
+</body>
+</html>
